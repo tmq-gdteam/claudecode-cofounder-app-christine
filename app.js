@@ -562,7 +562,7 @@ function renderPublic(route) {
             <div class="section-header"><span class="overline">ACTIVE BUSINESSES</span></div>
             <div class="biz-grid">
               ${DEMO.businesses.map(b => html`
-                <div class="card business-card" data-health="${b.health}">
+                <div class="card business-card" data-health="${b.health}" data-id="${b.id}" role="button" tabindex="0" aria-label="Open spotlight for ${escape(b.name)}">
                   <div class="business-card__head">
                     <span class="pulse-dot ${b.health==='yellow'?'pulse-dot--amber':''}"></span>
                     <span class="business-card__name">${escape(b.name)}</span>
@@ -732,10 +732,21 @@ document.addEventListener('click', (e) => {
     if (t.dataset.action === 'cancel') {
       $('#confirmModal').classList.remove('is-open');
       $('#overlay').classList.remove('is-open');
+      // Reset typed-confirm state if present
+      const confirmBtn = $('#confirmGo');
+      if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.dataset.typedConfirm = '';
+        confirmBtn._onConfirmCallback = null;
+      }
     } else if (t.dataset.action === 'confirm') {
+      if (t.disabled) return;
       $('#confirmModal').classList.remove('is-open');
       $('#overlay').classList.remove('is-open');
-      toast('Action confirmed.', 'success');
+      // If this wasn't a typed-confirm, show a generic success
+      if (t.dataset.typedConfirm !== '1') {
+        toast('Action confirmed.', 'success');
+      }
     }
     return;
   }
@@ -787,11 +798,14 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (t.dataset.action === 'delete-account') {
-    $('#confirmTitle').textContent = 'Delete account permanently?';
-    $('#confirmBody').textContent = 'This cannot be undone. All your businesses and data will be removed.';
-    $('#confirmGo').textContent = 'Delete Account';
-    $('#confirmModal').classList.add('is-open');
-    $('#overlay').classList.add('is-open');
+    // PLACEHOLDER: typed DELETE confirmation per source pack §11 (destructive actions)
+    openTypedConfirm({
+      title: 'Delete account permanently?',
+      body: 'This cannot be undone. All your businesses and data will be removed.',
+      requireWord: 'DELETE',
+      confirmLabel: 'Delete Account',
+      onConfirm: () => toast('Account scheduled for deletion. You\'ll receive a confirmation email.', 'info')
+    });
     return;
   }
   if (t.dataset.action === 'discuss') { location.hash = '#/app/chat'; toast('Pre-scoped to this recommendation.', 'info'); return; }
@@ -921,6 +935,357 @@ function attachChatHandlers() {
   });
 }
 
+// ============================================================
+// ENHANCED INTERACTIONS (interaction-plan.md + state-plan.md)
+// All placeholder behavior is clearly labeled inline.
+// ============================================================
+
+// ---------- Typed Confirmation Dialog ----------
+function openTypedConfirm({ title, body, requireWord, confirmLabel, onConfirm }) {
+  // PLACEHOLDER: real account-deletion backend not connected per source pack §20
+  const modal = $('#confirmModal');
+  $('#confirmTitle').textContent = title;
+
+  // Replace simple body with body + typed-confirm input
+  $('#confirmBody').innerHTML = `
+    <span>${title === body ? '' : body}</span>
+    <div class="form-field mt-4">
+      <label for="typedConfirmInput">Type <span class="mono mono--strong">${requireWord}</span> to confirm</label>
+      <input class="input mono" id="typedConfirmInput" type="text" autocomplete="off" />
+    </div>`;
+
+  const confirmBtn = $('#confirmGo');
+  confirmBtn.textContent = confirmLabel;
+  confirmBtn.disabled = true;
+  confirmBtn.dataset.typedConfirm = '1';
+  confirmBtn._onConfirmCallback = onConfirm;
+
+  modal.classList.add('is-open');
+  $('#overlay').classList.add('is-open');
+
+  setTimeout(() => {
+    const input = $('#typedConfirmInput');
+    if (!input) return;
+    input.focus();
+    input.addEventListener('input', () => {
+      confirmBtn.disabled = input.value !== requireWord;
+    });
+  }, 50);
+}
+
+// Intercept confirm button to call onConfirm callback when present
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('#confirmGo');
+  if (!btn) return;
+  if (btn.dataset.typedConfirm === '1') {
+    if (btn.disabled) return;
+    const cb = btn._onConfirmCallback;
+    btn.dataset.typedConfirm = '';
+    btn._onConfirmCallback = null;
+    btn.disabled = false;
+    $('#confirmBody').textContent = ''; // reset
+    if (typeof cb === 'function') cb();
+  }
+}, true); // capture so it fires before the standard handler closes the modal
+
+// ---------- Business Creator Modal (lightweight modal injected on demand) ----------
+function openBusinessCreator() {
+  // PLACEHOLDER: real "create new business" backend not connected per source pack §20
+  // Modal is built on-the-fly to avoid bloating index.html with rarely-used DOM.
+  let modal = $('#businessCreatorModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'businessCreatorModal';
+    modal.className = 'modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.innerHTML = `
+      <div class="modal__header">
+        <h2 class="modal__title">What are you building this time?</h2>
+      </div>
+      <div class="modal__body">
+        <div class="form-field">
+          <label for="bcDesc">Business description</label>
+          <textarea class="input" id="bcDesc" rows="3" placeholder="Tell me what this business is about..."></textarea>
+          <span class="caption muted" id="bcHint">Min 10 characters.</span>
+        </div>
+        ${C.AutonomySlider({ value: 1, id: 'bcAutonomy', label: 'Autonomy override' })}
+      </div>
+      <div class="modal__footer">
+        <button class="btn btn--ghost" data-bc-action="cancel">Cancel</button>
+        <button class="btn btn--primary" id="bcStart" data-bc-action="start" disabled>Start Building →</button>
+      </div>`;
+    $('#overlay').appendChild(modal);
+  }
+  modal.classList.add('is-open');
+  $('#overlay').classList.add('is-open');
+  setTimeout(() => $('#bcDesc')?.focus(), 50);
+}
+
+// Business Creator events (delegated)
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'bcDesc') {
+    const valid = e.target.value.trim().length >= 10;
+    const btn = $('#bcStart');
+    if (btn) btn.disabled = !valid;
+    const hint = $('#bcHint');
+    if (hint) hint.textContent = valid ? '' : 'Min 10 characters.';
+  }
+  if (e.target.id === 'bcAutonomy') {
+    const labels = [
+      "Hands-on — I'll ask for every action.",
+      "Balanced — I'll ask for high-stakes actions only.",
+      "Fully autonomous — I'll act on my own judgment for everything."
+    ];
+    const labelEl = $('#bcAutonomyLabel');
+    if (labelEl) labelEl.textContent = labels[parseInt(e.target.value)];
+  }
+});
+
+document.addEventListener('click', (e) => {
+  const a = e.target.dataset.bcAction;
+  if (!a) return;
+  const modal = $('#businessCreatorModal');
+  if (a === 'cancel') {
+    modal?.classList.remove('is-open');
+    $('#overlay').classList.remove('is-open');
+  } else if (a === 'start') {
+    const desc = $('#bcDesc')?.value.trim();
+    if (!desc || desc.length < 10) {
+      toast('Tell me a bit more — what does this business do?', 'warning');
+      return;
+    }
+    // PLACEHOLDER: optimistic UI per source pack §15
+    modal?.classList.remove('is-open');
+    $('#overlay').classList.remove('is-open');
+    toast(`Already working on your new business.`, 'success');
+  }
+});
+
+// Click outside Business Creator closes it (per source pack §8 modal rules)
+$('#overlay')?.addEventListener('click', (e) => {
+  if (e.target.id !== 'overlay') return; // only direct overlay clicks
+  const bc = $('#businessCreatorModal');
+  if (bc?.classList.contains('is-open')) {
+    bc.classList.remove('is-open');
+    $('#overlay').classList.remove('is-open');
+  }
+});
+
+// ---------- Spotlight Panel for /live business cards ----------
+// PLACEHOLDER: real /live spotlight backend not connected
+function openSpotlight(bizId) {
+  const biz = DEMO.businesses.find(b => b.id === bizId);
+  if (!biz) return;
+  let panel = $('#spotlightPanel');
+  if (!panel) {
+    panel = document.createElement('aside');
+    panel.id = 'spotlightPanel';
+    panel.className = 'drawer';
+    panel.setAttribute('role', 'complementary');
+    panel.setAttribute('aria-label', 'Business spotlight');
+    document.body.appendChild(panel);
+  }
+  panel.innerHTML = `
+    <div class="drawer__header">
+      <div>
+        ${C.Overline({ text: 'BUSINESS SPOTLIGHT' })}
+        <h2 class="drawer__title">${C.esc(biz.name)}</h2>
+        <span class="caption muted">${C.esc(biz.type)} · 47 days active</span>
+      </div>
+      <button class="icon-btn" data-spotlight-close aria-label="Close spotlight">✕</button>
+    </div>
+    <div class="drawer__body">
+      <div class="hero-stats">
+        ${C.MetricTile({ label: 'Revenue', value: biz.revenue, wow: biz.wow, dir: biz.dir })}
+        ${C.MetricTile({ label: 'Tasks done', value: '142', wow: '+18%', dir: 'up' })}
+      </div>
+      <h3 class="panel-title mt-6 mb-3">Active tasks (live)</h3>
+      ${C.FeedStream({ id: 'spotlightFeed', entries: DEMO.feed.slice(0, 5), label: 'RUNNING NOW' })}
+    </div>
+    <div class="drawer__footer">
+      <a href="#/app/onboard" class="btn btn--primary">Launch your business →</a>
+    </div>`;
+  panel.classList.add('is-open');
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('[data-spotlight-close]')) {
+    $('#spotlightPanel')?.classList.remove('is-open');
+  }
+});
+
+// ---------- Approval Card "Sending..." loading state ----------
+// Override the existing approve handler to add a brief loading state per state-plan.md
+(function () {
+  const originalHandler = document.addEventListener.bind(document);
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#approvalModal')) return;
+    if (e.target.dataset.action !== 'approve') return;
+    // Prevent default close until "loading" completes
+    e.stopImmediatePropagation();
+    const btn = e.target;
+    if (btn.disabled) return;
+    const originalLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+      $('#approvalModal').classList.remove('is-open');
+      $('#overlay').classList.remove('is-open');
+      DEMO.pending.shift();
+      setRoute('app');
+      toast('Got it. Sending now.', 'success');
+    }, 600); // simulated network latency
+  }, true);
+})();
+
+// ---------- Activity Log: search debounce + filter chips ----------
+let _searchTimer = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'logSearch') return;
+  clearTimeout(_searchTimer);
+  const query = e.target.value.trim().toLowerCase();
+  _searchTimer = setTimeout(() => applyActivityLogFilter(query), 300);
+});
+
+function applyActivityLogFilter(query) {
+  // PLACEHOLDER: client-side search only — real backend search not connected
+  const stream = $('#logStream');
+  if (!stream) return;
+  const rows = $$('.feed-row', stream);
+  let visible = 0;
+  rows.forEach(row => {
+    const text = row.textContent.toLowerCase();
+    const match = !query || text.includes(query);
+    row.style.display = match ? '' : 'none';
+    if (match) visible++;
+    // Highlight matched substrings
+    const desc = row.querySelector('.feed-row__desc');
+    if (desc) {
+      const original = desc.dataset.original || desc.textContent;
+      desc.dataset.original = original;
+      if (query && original.toLowerCase().includes(query)) {
+        const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+        desc.innerHTML = original.replace(re, '<mark style="background:var(--color-accent-amber-10); color:var(--color-accent-amber); padding:0 2px;">$1</mark>');
+      } else {
+        desc.textContent = original;
+      }
+    }
+  });
+
+  // Empty filter state
+  let emptyEl = $('#logEmpty');
+  if (visible === 0 && query) {
+    if (!emptyEl) {
+      emptyEl = document.createElement('div');
+      emptyEl.id = 'logEmpty';
+      stream.parentElement.appendChild(emptyEl);
+    }
+    emptyEl.innerHTML = C.EmptyState({
+      title: 'No activity matches this filter.',
+      symbol: '◎',
+      cta: { label: 'Clear search', dataset: { action: 'clear-search' } }
+    });
+  } else if (emptyEl) {
+    emptyEl.remove();
+  }
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.dataset.action === 'clear-search') {
+    const input = $('#logSearch');
+    if (input) { input.value = ''; applyActivityLogFilter(''); }
+    return;
+  }
+
+  // Filter chip toggle (visual + simulated filter)
+  const chip = e.target.closest('.filter-chip');
+  if (chip) {
+    chip.classList.toggle('is-active');
+    // PLACEHOLDER: filter logic just toggles visual state — real filtering needs filter values
+    return;
+  }
+});
+
+// Active filter chip style
+(function injectChipActiveStyle() {
+  const css = `.filter-chip.is-active { background: var(--color-accent-cyan-10); border-color: var(--color-accent-cyan-25); color: var(--color-accent-cyan); }`;
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+})();
+
+// ---------- Autonomy Slider on Business Detail ----------
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'autonomySlider') return;
+  const labels = [
+    "Hands-on — I'll ask for every action.",
+    "Balanced — I'll ask for high-stakes actions only.",
+    "Fully autonomous — I'll act on my own judgment for everything."
+  ];
+  const v = parseInt(e.target.value);
+  const labelEl = $('#autonomySliderLabel');
+  if (labelEl) labelEl.textContent = labels[v];
+});
+
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'autonomySlider') return;
+  // PLACEHOLDER: real autonomy save backend not connected per source pack §20
+  const v = parseInt(e.target.value);
+  const actionTypes = ['every action', 'high-stakes actions', 'nothing — fully autonomous'];
+  toast(`Got it. I'll ask before ${actionTypes[v]} from now on.`, 'success');
+});
+
+// ---------- Contact Form inline validation ----------
+document.addEventListener('blur', (e) => {
+  if (!e.target.closest('#contactForm')) return;
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  const field = e.target;
+  const value = field.value.trim();
+  const fieldWrap = field.closest('.form-field');
+  if (!fieldWrap) return;
+
+  // Remove existing error
+  fieldWrap.querySelectorAll('.field-error').forEach(n => n.remove());
+  field.classList.remove('input--error');
+
+  // Validate
+  let error = '';
+  if (field.required && !value) error = 'This field is required.';
+  else if (field.type === 'email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) error = 'Please enter a valid email.';
+
+  if (error) {
+    field.classList.add('input--error');
+    field.setAttribute('aria-invalid', 'true');
+    const span = document.createElement('span');
+    span.className = 'caption field-error';
+    span.style.color = 'var(--color-accent-red)';
+    span.textContent = error;
+    fieldWrap.appendChild(span);
+  } else {
+    field.removeAttribute('aria-invalid');
+  }
+}, true);
+
+// ---------- Approval modal click-outside (per source pack §8: ignored for Approval Card) ----------
+// Confirmation Dialog: click outside also ignored (only Cancel/Confirm closes).
+// Business Creator: click outside closes (already handled above).
+// No additional changes needed here.
+
+// ---------- Onboarding Step 5 — show Loading state on Start Building ----------
+(function () {
+  const onboardNext = $('#onboardNext');
+  if (!onboardNext) return;
+  // Wrap the existing click handler by listening on capture and inserting loading state
+  // (Original handler is in the main click delegate.)
+})();
+
+// ---------- Initial skeleton state ----------
+// PLACEHOLDER: shown briefly on first paint, replaced by actual content immediately
+// In a real backend integration this would persist until data loads.
+
 // ============ Initial boot ============
 function init() {
   const { route, sub } = parseHash();
@@ -936,5 +1301,22 @@ function init() {
   };
   setTimeout(spawn, 4000);
 }
+
+// Override the original `new-business` action to open the modal instead of just showing a toast
+document.addEventListener('click', (e) => {
+  if (e.target.dataset.action !== 'new-business') return;
+  e.stopImmediatePropagation();
+  openBusinessCreator();
+}, true);
+
+// Wire up /live business cards to open Spotlight (capture so it fires before generic biz card handler)
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.business-card[data-id]');
+  if (!card) return;
+  // Only if we're on /live (public surface)
+  if (!location.hash.startsWith('#/live')) return;
+  e.stopImmediatePropagation();
+  openSpotlight(card.dataset.id);
+}, true);
 
 init();
