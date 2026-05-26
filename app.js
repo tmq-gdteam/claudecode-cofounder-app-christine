@@ -77,24 +77,18 @@ function formatElapsed(startedAt) {
   return `${String(m).padStart(2,'0')}m ${String(sec).padStart(2,'0')}s`;
 }
 
-// ============ Toasts ============
+// ============ Toasts (delegates to Components.showToast) ============
 function toast(message, type='success', persistent=false) {
-  const region = $('#toastRegion');
-  const el = document.createElement('div');
-  el.className = `toast toast--${type}`;
-  el.textContent = message;
-  region.appendChild(el);
-  if (!persistent) {
-    setTimeout(() => {
-      el.style.transition = 'opacity 200ms';
-      el.style.opacity = '0';
-      setTimeout(() => el.remove(), 220);
-    }, 4000);
-  }
+  return window.Components.showToast(message, type, persistent);
 }
 
-// ============ Sparkline (SVG) ============
+// ============ Sparkline (delegates to Components.Sparkline for legacy callers) ============
 function sparkline(data, dir='up') {
+  return window.Components.Sparkline({ data, dir });
+}
+
+// Legacy sparkline implementation kept inline for any direct callers
+function _legacySparkline(data, dir='up') {
   const w = 100, h = 24;
   const min = Math.min(...data), max = Math.max(...data);
   const range = (max - min) || 1;
@@ -104,162 +98,74 @@ function sparkline(data, dir='up') {
   return `<svg class="sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" /></svg>`;
 }
 
-// ============ Render Helpers ============
-function renderMacroBar() {
-  return html`
-    <div class="metrics-bar" aria-label="Platform metrics (demo data — not real)">
-      ${DEMO.macro.map(m => html`
-        <div class="metric-tile">
-          <div class="metric-tile__label">${m.label}</div>
-          <div class="metric-tile__value" data-target="${m.target}">${m.value.toLocaleString()}</div>
-          <div class="wow-badge wow-badge--${m.dir}">${m.dir==='up'?'↑':'↓'} ${m.wow} WoW</div>
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
+// ============ Render Helpers (now thin wrappers over Components) ============
+const C = window.Components;
 
-function renderStatusTag(status) {
-  const labels = {
-    running: 'RUNNING', done: 'DONE', warn: 'WARN', retry: 'RETRY',
-    blocked: 'BLOCKED', info: 'INFO', sent: 'SENT', skipped: 'SKIPPED'
-  };
-  return `<span class="status-tag status-tag--${status}">[${labels[status] || 'INFO'}]</span>`;
+function renderMacroBar() {
+  return C.MacroMetricsBar(DEMO.macro);
 }
 
 function renderFeedRow(entry) {
-  const timer = entry.status === 'running'
-    ? `<span class="feed-row__timer mono">Running for ${formatElapsed(entry.startedAt)}</span>`
-    : (entry.timer ? `<span class="feed-row__timer mono">${entry.timer}</span>` : '');
-  const artifact = entry.artifact
-    ? `<span class="feed-row__artifact" data-artifact="${escape(entry.artifact)}">▸ ${escape(entry.artifact)}</span>`
-    : '';
-  return html`
-    <div class="feed-row feed-row--${entry.status}" data-id="${entry.id}" role="listitem">
-      <span class="feed-row__prompt">&gt;</span>
-      <span class="feed-row__time">[${entry.time}]</span>
-      ${renderStatusTag(entry.status)}
-      <span class="feed-row__desc">${escape(entry.desc)}</span>
-      <span>${timer}${artifact}</span>
-    </div>
-  `;
+  return C.FeedRow(entry);
 }
 
 function renderFeed() {
-  return html`
-    <div class="feed" aria-label="Live co-founder activity feed">
-      <div class="feed__header">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span class="pulse-dot"></span>
-          <span class="overline">LIVE CO-FOUNDER FEED</span>
-        </div>
-        <span class="caption mono">${DEMO.feed.length} entries</span>
-      </div>
-      <div class="feed__stream" id="feedStream" role="log" aria-live="polite">
-        ${DEMO.feed.map(renderFeedRow).join('')}
-      </div>
-    </div>
-  `;
+  return C.FeedStream({ id: 'feedStream', entries: DEMO.feed });
 }
 
 function renderPending() {
   if (!DEMO.pending.length) {
-    return html`
+    return `
       <section>
-        <div class="section-header"><span class="overline">PENDING DECISIONS</span></div>
+        ${C.SectionHeader({ title: 'PENDING DECISIONS' })}
         <p class="body-sm muted">All clear. No decisions needed from you today.</p>
-      </section>
-    `;
+      </section>`;
   }
-  return html`
+  return `
     <section>
-      <div class="section-header">
-        <span class="overline">PENDING DECISIONS · <span class="badge badge--amber">${DEMO.pending.length}</span></span>
+      ${C.SectionHeader({ title: 'PENDING DECISIONS', count: DEMO.pending.length })}
+      <div class="stack gap-3">
+        ${DEMO.pending.map(C.PendingDecisionCard).join('')}
       </div>
-      <div style="display:flex; flex-direction:column; gap:var(--space-3);">
-        ${DEMO.pending.map(d => html`
-          <div class="card decision-card" data-id="${d.id}">
-            <div class="overline overline--amber">${escape(d.tag)}</div>
-            <h3 class="decision-card__title">${escape(d.title)}</h3>
-            <p class="decision-card__why muted">${escape(d.why)}</p>
-            <div class="decision-card__actions">
-              <button class="btn btn--primary btn--sm" data-decision="approve" data-id="${d.id}">Approve →</button>
-              <button class="btn btn--ghost btn--sm" data-decision="modify" data-id="${d.id}">Modify</button>
-              <button class="btn btn--ghost btn--sm" data-decision="skip" data-id="${d.id}">Skip this time</button>
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    </section>
-  `;
+    </section>`;
 }
 
 function renderBusinessCards() {
-  return html`
+  return `
     <section>
-      <div class="section-header"><span class="overline">YOUR BUSINESSES · ${DEMO.businesses.length}</span></div>
-      <div style="display:flex; flex-direction:column; gap:var(--space-3);">
-        ${DEMO.businesses.map(b => html`
-          <div class="card business-card" data-health="${b.health}" data-id="${b.id}" role="link" tabindex="0">
-            <div class="business-card__head">
-              <span class="pulse-dot ${b.health==='yellow'?'pulse-dot--amber': b.health==='red'?'pulse-dot--red':''}"></span>
-              <span class="business-card__name">${escape(b.name)}</span>
-              <span class="overline">${escape(b.type)}</span>
-            </div>
-            <div class="business-card__meta">
-              <span class="business-card__revenue">${escape(b.revenue)}</span>
-              <span class="health-badge health-badge--${b.health}"><span class="health-badge__dot"></span>${b.health==='green'?'Healthy':b.health==='yellow'?'Attention':'Action req'}</span>
-            </div>
-            <div class="business-card__sparkline">${sparkline(b.sparkdata, b.dir)}</div>
-            <div class="business-card__footer">
-              <span class="wow-badge wow-badge--${b.dir}">${b.dir==='up'?'↑':'↓'} ${escape(b.wow)} WoW</span>
-              · ${b.tasks} tasks · ${escape(b.last)}
-            </div>
-          </div>
-        `).join('')}
+      ${C.SectionHeader({ title: `YOUR BUSINESSES · ${DEMO.businesses.length}` })}
+      <div class="stack gap-3">
+        ${DEMO.businesses.map(C.BusinessCard).join('')}
       </div>
-    </section>
-  `;
+    </section>`;
 }
 
 function renderHighlights() {
-  return html`
+  return `
     <section>
-      <div class="section-header"><span class="overline">TODAY'S HIGHLIGHTS</span></div>
-      <div class="highlights">
-        ${DEMO.highlights.map(h => html`
-          <div class="highlight highlight--${h.type==='warn'?'warn':''}">
-            <span class="highlight__marker">${h.type==='warn'?'⚠':h.type==='win'?'✓':'▸'}</span>
-            <span>${escape(h.text)}</span>
-          </div>
-        `).join('')}
-      </div>
-    </section>
-  `;
+      ${C.SectionHeader({ title: "TODAY'S HIGHLIGHTS" })}
+      ${C.HighlightsList(DEMO.highlights)}
+    </section>`;
 }
 
 function renderNextUp() {
-  return html`
+  return `
     <section>
-      <div class="section-header"><span class="overline">NEXT UP</span></div>
-      <div class="queue">
-        ${DEMO.nextUp.map(q => html`<div class="queue-item">▸ ${escape(q)}</div>`).join('')}
-      </div>
-    </section>
-  `;
+      ${C.SectionHeader({ title: 'NEXT UP' })}
+      ${C.QueueList(DEMO.nextUp)}
+    </section>`;
 }
 
 function renderQuickActions() {
-  return html`
+  return `
     <section>
-      <div class="section-header"><span class="overline">QUICK ACTIONS</span></div>
-      <div class="quick-actions">
-        <button class="btn btn--ghost" data-action="new-business">+ Launch new business</button>
-        <button class="btn btn--ghost" data-action="go-chat">Talk to your co-founder</button>
-        <button class="btn btn--ghost" data-action="go-activity">View activity log</button>
+      ${C.SectionHeader({ title: 'QUICK ACTIONS' })}
+      <div class="stack gap-2 quick-actions">
+        ${C.Button({ label: '+ Launch new business', variant: 'ghost', dataset: { action: 'new-business' } })}
+        ${C.Button({ label: 'Talk to your co-founder', variant: 'ghost', dataset: { action: 'go-chat' } })}
+        ${C.Button({ label: 'View activity log', variant: 'ghost', dataset: { action: 'go-activity' } })}
       </div>
-    </section>
-  `;
+    </section>`;
 }
 
 // ============ Views ============
@@ -290,183 +196,152 @@ function viewCommandCenter() {
 
 function viewBusinessDetail(id) {
   const biz = DEMO.businesses.find(b => b.id === id) || DEMO.businesses[0];
-  const tabs = ['Strategy','Product','Marketing','Finance','Sales','Analytics'];
+  const tabs = [
+    'Strategy', 'Product',
+    { label: 'Marketing', count: 3 },
+    'Finance', 'Sales', 'Analytics'
+  ];
   const activeTab = window._activeTab || 'Marketing';
-  return html`
+
+  const heroStats = `
+    <div class="hero-stats">
+      ${C.MetricTile({ label: 'Revenue (MRR)', value: biz.revenue, wow: biz.wow, dir: biz.dir })}
+      ${C.MetricTile({ label: 'Customers', value: '128', wow: '+6%', dir: 'up' })}
+      ${C.MetricTile({ label: 'Growth rate', value: '12%', wow: '+3%', dir: 'up' })}
+      ${C.MetricTile({ label: 'AI confidence', value: 'High', wow: 'stable', dir: 'flat' })}
+    </div>`;
+
+  const sampleArtifacts = [
+    { id: 'a1', time: '2h ago', status: 'done', dept: 'Marketing', desc: 'Cold outreach — SaaS founders Q4', artifact: 'Email Draft' },
+    { id: 'a2', time: '6h ago', status: 'done', dept: 'Strategy', desc: 'Q4 messaging brief', artifact: 'Strategy Doc' }
+  ];
+
+  return `
     <div class="biz-detail__head">
       <div>
-        <h1 class="biz-detail__title">${escape(biz.name)}</h1>
-        <div class="biz-detail__sub">${escape(biz.type)} · ${biz.tasks} tasks running</div>
+        <h1 class="biz-detail__title">${C.esc(biz.name)}</h1>
+        <div class="biz-detail__sub">${C.esc(biz.type)} · ${biz.tasks} tasks running</div>
       </div>
-      <div style="display:flex; gap:var(--space-2);">
-        <button class="btn btn--ghost btn--sm" data-action="biz-chat">Talk to your co-founder about this</button>
-        <button class="btn btn--ghost btn--sm" data-action="biz-pause">Pause Business</button>
-      </div>
-    </div>
-
-    <div class="hero-stats">
-      <div class="metric-tile"><div class="metric-tile__label">Revenue (MRR)</div><div class="metric-tile__value">${escape(biz.revenue)}</div><div class="wow-badge wow-badge--${biz.dir}">${biz.dir==='up'?'↑':'↓'} ${escape(biz.wow)} WoW</div></div>
-      <div class="metric-tile"><div class="metric-tile__label">Customers</div><div class="metric-tile__value">128</div><div class="wow-badge wow-badge--up">↑ +6% WoW</div></div>
-      <div class="metric-tile"><div class="metric-tile__label">Growth rate</div><div class="metric-tile__value">12%</div><div class="wow-badge wow-badge--up">↑ +3% WoW</div></div>
-      <div class="metric-tile"><div class="metric-tile__label">AI confidence</div><div class="metric-tile__value">High</div><div class="wow-badge wow-badge--flat">— stable</div></div>
-    </div>
-
-    <div class="recommendation">
-      <div class="recommendation__intro">▸ BASED ON THE LAST 7 DAYS</div>
-      <div class="recommendation__body">I recommend increasing ad spend on Channel B by 20%. Open rate is 4.8% vs Variant A at 2.1% — statistically significant.</div>
-      <div class="recommendation__data">CTR Variant A: 2.1% · CTR Variant B: 4.8% · n=2,847 · p<0.01</div>
-      <div class="recommendation__actions">
-        <button class="btn btn--primary btn--sm">Accept</button>
-        <button class="btn btn--ghost btn--sm">Dismiss</button>
-        <button class="btn btn--ghost btn--sm" data-action="discuss">Discuss</button>
+      <div class="cluster gap-2">
+        ${C.Button({ label: 'Talk to your co-founder about this', variant: 'ghost', size: 'sm', dataset: { action: 'biz-chat' } })}
+        ${C.Button({ label: 'Pause Business', variant: 'ghost', size: 'sm', dataset: { action: 'biz-pause' } })}
       </div>
     </div>
 
-    <div class="tab-bar" role="tablist" style="margin-top: var(--space-6);">
-      ${tabs.map(t => html`
-        <button class="tab ${t===activeTab?'is-active':''}" role="tab" aria-selected="${t===activeTab}" data-tab="${t}">
-          ${t} ${t==='Marketing'?'<span class="tab__count">3</span>':''}
-        </button>
-      `).join('')}
-    </div>
+    ${heroStats}
+
+    ${C.RecommendationCard({
+      intro: 'BASED ON THE LAST 7 DAYS',
+      body: 'I recommend increasing ad spend on Channel B by 20%. Open rate is 4.8% vs Variant A at 2.1% — statistically significant.',
+      data: 'CTR Variant A: 2.1% · CTR Variant B: 4.8% · n=2,847 · p<0.01'
+    })}
+
+    <div class="mt-6">${C.TabBar({ tabs, activeTab })}</div>
 
     <div class="dept-panel">
       <div class="dept-section">
         <h3>ACTIVE TASKS</h3>
         <div class="feed__stream" style="max-height:none;">
-          ${renderFeedRow(DEMO.feed[0])}
-          ${renderFeedRow(DEMO.feed[3])}
-          ${renderFeedRow(DEMO.feed[4])}
+          ${[DEMO.feed[0], DEMO.feed[3], DEMO.feed[4]].map(C.FeedRow).join('')}
         </div>
       </div>
 
       <div class="dept-section">
         <h3>RECENT ARTIFACTS</h3>
-        <div style="display:flex; flex-direction:column; gap:var(--space-2);">
-          <div class="feed-row feed-row--done" data-artifact="Email Draft">
-            <span class="feed-row__prompt">&gt;</span>
-            <span class="feed-row__time">[2h ago]</span>
-            ${renderStatusTag('done')}
-            <span class="feed-row__desc">Cold outreach — SaaS founders Q4</span>
-            <span class="feed-row__artifact" data-artifact="Email Draft">▸ Email Draft</span>
-          </div>
-          <div class="feed-row feed-row--done" data-artifact="Strategy Doc">
-            <span class="feed-row__prompt">&gt;</span>
-            <span class="feed-row__time">[6h ago]</span>
-            ${renderStatusTag('done')}
-            <span class="feed-row__desc">Q4 messaging brief</span>
-            <span class="feed-row__artifact" data-artifact="Strategy Doc">▸ Strategy Doc</span>
-          </div>
+        <div class="stack gap-2">
+          ${sampleArtifacts.map(C.FeedRow).join('')}
         </div>
       </div>
 
-      <div class="autonomy">
-        <div class="autonomy__label">Co-founder autonomy</div>
-        <div class="autonomy__current" id="autonomyLabel">Balanced — I'll ask for high-stakes actions only.</div>
-        <input type="range" min="0" max="2" value="1" class="slider" id="autonomySlider" aria-label="Autonomy level" />
-        <div class="slider-ends"><span>Approve everything</span><span>Fully autonomous</span></div>
-      </div>
-    </div>
-  `;
+      ${C.AutonomySlider({ value: 1 })}
+    </div>`;
 }
 
 function viewChat() {
-  return html`
+  const prompts = [
+    "How's marketing performing this week?",
+    "Write a cold email for PetPal",
+    "What should I focus on next?"
+  ];
+  return `
     <div class="chat">
       <div class="chat__context">
-        <span class="pulse-dot"></span> PetPal · switch
+        ${C.PulseDot()} PetPal · switch
       </div>
       <div class="chat__thread" id="chatThread">
-        <div class="chat-msg chat-msg--cofounder">
-          Ready when you are. Ask me anything about your business, or tell me what to work on next.
-        </div>
+        ${C.ChatMessage({ sender: 'cofounder', text: 'Ready when you are. Ask me anything about your business, or tell me what to work on next.' })}
       </div>
       <div class="chat__suggested" id="chatSuggested">
-        <button class="prompt-chip" data-prompt="How's marketing performing this week?">How's marketing performing this week?</button>
-        <button class="prompt-chip" data-prompt="Write a cold email for PetPal">Write a cold email for PetPal</button>
-        <button class="prompt-chip" data-prompt="What should I focus on next?">What should I focus on next?</button>
+        ${prompts.map(C.PromptChip).join('')}
       </div>
       <div class="chat__input">
         <textarea id="chatInput" placeholder="Ask your co-founder anything..." rows="1"></textarea>
-        <button class="btn btn--primary" id="chatSend">Send →</button>
+        ${C.Button({ label: 'Send →', variant: 'primary', dataset: { action: 'send-chat' } }).replace('<button', '<button id="chatSend"')}
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function viewActivity() {
-  return html`
+  const extendedFeed = [
+    ...DEMO.feed,
+    ...DEMO.feed.map(e => ({ ...e, id: e.id + 100, time: '11:38:00' }))
+  ];
+  return `
     <div class="log-head">
       <div>
         <h1>Activity Log</h1>
         <div class="caption muted">Everything your co-founder has done.</div>
       </div>
-      <div style="display:flex; gap:var(--space-2);">
-        <button class="btn btn--ghost btn--sm" data-action="export">Export CSV</button>
+      <div class="cluster gap-2">
+        ${C.Button({ label: 'Export CSV', variant: 'ghost', size: 'sm', dataset: { action: 'export' } })}
       </div>
     </div>
     <div class="filter-bar">
-      <input type="search" placeholder="Search activity..." class="filter-search" id="logSearch" />
+      <input type="search" placeholder="Search activity..." class="filter-search" id="logSearch" aria-label="Search activity" />
       <button class="filter-chip" data-filter="business">Business <span class="muted">▾</span></button>
       <button class="filter-chip" data-filter="department">Department <span class="muted">▾</span></button>
       <button class="filter-chip" data-filter="date">Last 7 days <span class="muted">▾</span></button>
     </div>
     <div class="log-list">
       <div class="feed__stream" style="max-height:none;" id="logStream">
-        ${DEMO.feed.map(renderFeedRow).join('')}
-        ${DEMO.feed.map(e => renderFeedRow({...e, id: e.id + 100, time: '11:38:00'})).join('')}
+        ${extendedFeed.map(C.FeedRow).join('')}
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function viewSettings() {
   const activeTab = window._settingsTab || 'Account';
   const tabs = ['Account','Billing','Notifications','API','Integrations','Data'];
-  return html`
-    <div style="margin-bottom:var(--space-6);">
-      <h1 style="font-family:var(--font-display); font-size:var(--app-text-h2); color:var(--color-text-primary); margin:0;">Settings</h1>
-    </div>
+  return `
+    <div class="mb-6"><h1 class="screen-title">Settings</h1></div>
     <div class="settings">
-      <nav class="settings__nav">
-        ${tabs.map(t => html`<button class="settings__tab ${t===activeTab?'is-active':''}" data-settings-tab="${t}">${t}</button>`).join('')}
+      <nav class="settings__nav" aria-label="Settings sections">
+        ${tabs.map(t => `<button class="settings__tab ${t===activeTab?'is-active':''}" data-settings-tab="${t}">${t}</button>`).join('')}
       </nav>
       <div class="settings__panel" id="settingsPanel">
         ${renderSettingsPanel(activeTab)}
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function renderSettingsPanel(tab) {
-  if (tab === 'Account') return html`
-    <h2 style="font-family:var(--font-display); font-size:var(--app-text-h3); margin:0 0 var(--space-4); color:var(--color-text-primary);">Account</h2>
-    <div class="form-field">
-      <label for="acct-name">Your name</label>
-      <input class="input" id="acct-name" type="text" value="Founder" />
-    </div>
-    <div class="form-field">
-      <label for="acct-email">Email</label>
-      <input class="input" id="acct-email" type="email" value="demo@cofounder.new" />
-    </div>
-    <button class="btn btn--primary" data-action="save-account">Save Changes</button>
-  `;
+  const panelTitle = (t) => `<h2 class="panel-title mb-4">${t}</h2>`;
 
-  if (tab === 'Notifications') return html`
-    <h2 style="font-family:var(--font-display); font-size:var(--app-text-h3); margin:0 0 var(--space-4); color:var(--color-text-primary);">Notifications</h2>
-    <div class="toggle-row">
-      <span class="toggle-row__label">Daily email digest</span>
-      <button class="toggle" role="switch" aria-checked="true" data-toggle="digest"></button>
-    </div>
-    <div class="toggle-row">
-      <span class="toggle-row__label">Critical decisions only</span>
-      <button class="toggle" role="switch" aria-checked="false" data-toggle="critical"></button>
-    </div>
-    <div class="toggle-row">
-      <span class="toggle-row__label">Slack alerts</span>
-      <button class="toggle" role="switch" aria-checked="false" data-toggle="slack"></button>
-    </div>
-  `;
+  if (tab === 'Account') {
+    return `
+      ${panelTitle('Account')}
+      ${C.FormField({ id: 'acct-name', label: 'Your name', value: 'Founder' })}
+      ${C.FormField({ id: 'acct-email', label: 'Email', type: 'email', value: 'demo@cofounder.new' })}
+      ${C.Button({ label: 'Save Changes', variant: 'primary', dataset: { action: 'save-account' } })}`;
+  }
+
+  if (tab === 'Notifications') {
+    return `
+      ${panelTitle('Notifications')}
+      ${C.ToggleRow({ id: 'digest', label: 'Daily email digest', checked: true })}
+      ${C.ToggleRow({ id: 'critical', label: 'Critical decisions only', checked: false })}
+      ${C.ToggleRow({ id: 'slack', label: 'Slack alerts', checked: false })}`;
+  }
 
   if (tab === 'Integrations') {
     const integrations = [
@@ -477,53 +352,38 @@ function renderSettingsPanel(tab) {
       { name: 'Slack',            short: 'SL', connected: false },
       { name: 'Zapier',           short: 'Z',  connected: false }
     ];
-    return html`
-      <h2 style="font-family:var(--font-display); font-size:var(--app-text-h3); margin:0 0 var(--space-4); color:var(--color-text-primary);">Integrations</h2>
-      ${integrations.map(i => html`
-        <div class="integration-card" data-connected="${i.connected}">
-          <div class="integration-card__left">
-            <div class="integration-card__logo">${i.short}</div>
-            <div>
-              <div class="integration-card__name">${i.name}</div>
-              <div class="integration-card__status">${i.connected ? `Connected · ${i.date}` : 'Not connected'}</div>
-            </div>
-          </div>
-          ${i.connected
-            ? `<button class="btn btn--ghost btn--sm" data-disconnect="${i.name}">Disconnect</button>`
-            : `<button class="btn btn--primary btn--sm" data-connect="${i.name}">Connect</button>`}
-        </div>
-      `).join('')}
-    `;
+    return `
+      ${panelTitle('Integrations')}
+      <div class="stack gap-3">${integrations.map(C.IntegrationCard).join('')}</div>`;
   }
 
-  if (tab === 'Billing') return html`
-    <h2 style="font-family:var(--font-display); font-size:var(--app-text-h3); margin:0 0 var(--space-4); color:var(--color-text-primary);">Billing</h2>
-    <p class="body-sm muted">Current plan: <span class="mono mono--strong">Pro · $49/mo</span></p>
-    <p class="caption muted">Pricing is tentative — final tiers being validated.</p>
-    <div style="display:flex; gap:var(--space-2); margin-top:var(--space-4);">
-      <button class="btn btn--primary btn--sm">Upgrade to Unlimited →</button>
-      <button class="btn btn--ghost btn--sm">Manage Billing</button>
-    </div>
-  `;
+  if (tab === 'Billing') {
+    return `
+      ${panelTitle('Billing')}
+      <p class="body-sm muted">Current plan: <span class="mono mono--strong">Pro · $49/mo</span></p>
+      <p class="caption muted">Pricing is tentative — final tiers being validated.</p>
+      <div class="cluster gap-2 mt-4">
+        ${C.Button({ label: 'Upgrade to Unlimited →', variant: 'primary', size: 'sm' })}
+        ${C.Button({ label: 'Manage Billing', variant: 'ghost', size: 'sm' })}
+      </div>`;
+  }
 
-  if (tab === 'API') return html`
-    <h2 style="font-family:var(--font-display); font-size:var(--app-text-h3); margin:0 0 var(--space-4); color:var(--color-text-primary);">API</h2>
-    <div class="form-field">
-      <label>API key</label>
-      <input class="input mono" type="text" value="cf_••••••••••••••••" readonly />
-      <span class="caption muted">Shown once. Copy it now — you won't see it again.</span>
-    </div>
-    <button class="btn btn--ghost btn--sm">Generate new key</button>
-  `;
+  if (tab === 'API') {
+    return `
+      ${panelTitle('API')}
+      ${C.FormField({ id: 'api-key', label: 'API key', value: 'cf_••••••••••••••••', readonly: true, helper: "Shown once. Copy it now — you won't see it again." })}
+      ${C.Button({ label: 'Generate new key', variant: 'ghost', size: 'sm' })}`;
+  }
 
-  if (tab === 'Data') return html`
-    <h2 style="font-family:var(--font-display); font-size:var(--app-text-h3); margin:0 0 var(--space-4); color:var(--color-text-primary);">Data</h2>
-    <p class="body-sm">Your data is yours. Export anytime.</p>
-    <div style="display:flex; gap:var(--space-2); margin-top:var(--space-4);">
-      <button class="btn btn--ghost btn--sm">Export all data (JSON)</button>
-      <button class="btn btn--destructive btn--sm" data-action="delete-account">Delete Account</button>
-    </div>
-  `;
+  if (tab === 'Data') {
+    return `
+      ${panelTitle('Data')}
+      <p class="body-sm">Your data is yours. Export anytime.</p>
+      <div class="cluster gap-2 mt-4">
+        ${C.Button({ label: 'Export all data (JSON)', variant: 'ghost', size: 'sm' })}
+        ${C.Button({ label: 'Delete Account', variant: 'destructive', size: 'sm', dataset: { action: 'delete-account' } })}
+      </div>`;
+  }
 
   return '<p>Not implemented in demo.</p>';
 }
